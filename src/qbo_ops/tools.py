@@ -26,9 +26,10 @@ def _creds():
 
 def health(args=None):
     """Connection health: validates credentials, refreshes the token if
-    needed, and confirms the realm answers a real API call."""
-    creds = _creds()
+    needed, and confirms the realm answers a real API call. Never raises —
+    returns a status dict (setup wizard message when unconfigured)."""
     try:
+        creds = _creds()
         with TokenLock(creds):
             token = creds.refresh()
         realm = creds._get("QBO_OPS_REALM_ID")
@@ -42,6 +43,8 @@ def health(args=None):
         }
     except QboError as e:
         msg = str(e)
+        if "not configured" in msg.lower():
+            return {"status": "unconfigured", "message": msg}
         if "invalid_grant" in msg.lower() or "HTTP 400" in msg:
             return {
                 "status": "reauth_required",
@@ -53,29 +56,40 @@ def health(args=None):
 
 
 def pnl(args):
-    """Profit & Loss report for a date range. args: start_date, end_date."""
+    """Profit & Loss report for a date range. args: start_date, end_date.
+    Uses the QBO reports endpoint (reports are not SQL-queryable)."""
     start = args.get("start_date") or (datetime.date.today().replace(day=1).isoformat())
     end = args.get("end_date") or datetime.date.today().isoformat()
     creds = _creds()
-    query = (f"select * from ProfitAndLoss "
-             f"where StartDate = '{start}' and EndDate = '{end}'")
-    resp = qbo_get(creds, "query", query=query)
-    report = resp.get("QueryResponse", {}).get("ProfitAndLoss", [{}])[0]
-    rows = report.get("Rows", {}).get("Row", [])
-    income = expense = 0.0
-    for row in rows:
-        header = row.get("Header", {}).get("ColData", [])
-        if header and header[0].get("value") == "Income":
-            income = _col_value(header)
-        elif header and header[0].get("value") in ("Expenses", "Cost of Goods Sold"):
-            expense += _col_value(header)
+    report = qbo_get(creds, f"reports/ProfitAndLoss?start_date={start}&end_date={end}")
+    totals = {}
+
+    def walk(rs):
+        for row in rs:
+            if row.get("type") == "Section" and "Rows" in row:
+                walk(row["Rows"].get("Row", []))
+            elif row.get("type") == "Section" and "Summary" in row:
+                sm = row["Summary"].get("ColData", [])
+                if len(sm) > 1 and sm[0].get("value", "").startswith("Total"):
+                    totals[sm[0]["value"]] = _col_value(sm)
+            if "Summary" in row:  # nested section summaries
+                sm = row["Summary"].get("ColData", [])
+                if len(sm) > 1 and sm[0].get("value", "").startswith("Total"):
+                    totals[sm[0]["value"]] = _col_value(sm)
+
+    walk(report.get("Rows", {}).get("Row", []))
+    income = totals.get("Total Income", 0.0)
+    expense = (totals.get("Total Expenses", 0.0)
+               + totals.get("Total Cost of Goods Sold", 0.0)
+               + totals.get("Total Other Expenses", 0.0))
+    net = totals.get("Net Income")
     return {
         "start_date": start,
         "end_date": end,
         "income": income,
         "expenses": expense,
-        "net_income": round(income - expense, 2),
-        "currency": report.get("Currency", "USD"),
+        "net_income": net if net is not None else round(income - expense, 2),
+        "totals": totals,
     }
 
 
