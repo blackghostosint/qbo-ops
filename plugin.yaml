@@ -10,6 +10,7 @@ provides_tools:
   - qbo_pnl
   - qbo_udf_audit
   - qbo_deposit_trace
+  - qbo_query
 provides_hooks: []
 provides_middleware: []
 requires_env:
@@ -35,5 +36,10 @@ oauth:
     client_id_env: QBO_OPS_CLIENT_ID
     client_secret_env: QBO_OPS_CLIENT_SECRET
     hosts: [quickbooks.api.intuit.com]
+config_schema:
+  allow_writes:
+    type: boolean
+    default: false
+    description: "Enable WRITE operations (creating/editing QBO transactions). Read-only unless YOU flip this. Writes also pass through Hermes's normal approval surface. Intentionally disabled in v0.1 — the write tool ships in v0.2 after sandbox verification."
 license: MIT
 tags: [quickbooks, accounting, bookkeeping, finance, smb]

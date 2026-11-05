@@ -260,11 +260,49 @@ def deposit_trace(args):
     }
 
 
+def qbo_query(args):
+    """Guarded read-only pass-through to QBO's SQL endpoint. This is the
+    'answer any question' tool: the agent composes a real SELECT against the
+    user's books. Guardrails enforced here, not requested:
+    - must start with SELECT (case-insensitive)
+    - no semicolons (no statement stacking)
+    - maxresults clamped to 200
+    """
+    query = (args.get("query") or "").strip()
+    if not query:
+        raise QboError("qbo_query needs a 'query' — a QBO SQL SELECT statement "
+                       "(e.g. \"select * from Purchase where TxnDate >= '2026-10-01' maxresults 50\")")
+    if not query.lower().startswith("select"):
+        raise QboError("qbo_query is READ-ONLY: only SELECT statements are allowed")
+    if ";" in query or "--" in query:
+        raise QboError("qbo_query rejects semicolons and comment markers")
+    import re as _re
+    query = _re.sub(r"maxresults\s+\d+", "", query, flags=_re.IGNORECASE).strip()
+    query += " maxresults 200"
+    transport = _transport()
+    resp = transport.get("query", query=query)
+    out = {"read_only": True, "query": query}
+    qr = resp.get("QueryResponse", {})
+    # Single-entity responses: hoist rows under 'results'; keep totalCount if present
+    for key, val in qr.items():
+        if key == "totalCount":
+            out["total_count"] = val
+        elif isinstance(val, list):
+            out["results"] = val
+            out["result_count"] = len(val)
+        else:
+            out[key] = val
+    out.setdefault("results", [])
+    out.setdefault("result_count", 0)
+    return out
+
+
 TOOLS = {
     "qbo_health": (health, "Check QuickBooks connection health; doubles as the setup wizard"),
     "qbo_pnl": (pnl, "Pull a QuickBooks Profit & Loss report for a date range"),
     "qbo_udf_audit": (udf_audit, "Audit recent close activity for backdated entries"),
     "qbo_deposit_trace": (deposit_trace, "Trace a deposit amount to detect duplicates/washes"),
+    "qbo_query": (qbo_query, "Run a READ-ONLY SQL query against the user's QuickBooks data. Use for any transaction-level financial question (spending by vendor, payment lists, invoice status, expense lookups). Only SELECT; write operations are not available."),
 }
 
 SCHEMAS = {
@@ -284,6 +322,14 @@ SCHEMAS = {
                               "amount": {"type": "number"},
                               "days": {"type": "integer"},
                           }, "required": ["amount"]}},
+    "qbo_query": {"name": "qbo_query", "description": TOOLS["qbo_query"][1],
+                  "inputSchema": {"type": "object", "properties": {
+                      "query": {"type": "string",
+                                "description": ("QBO SQL SELECT. Entities: Purchase, Payment, "
+                                                "Invoice, Bill, Deposit, JournalEntry, Account, "
+                                                "Vendor, Customer. Example: \"select * from Purchase "
+                                                "where TxnDate >= '2026-10-01' maxresults 50\"")},
+                  }, "required": ["query"]}},
 }
 
 

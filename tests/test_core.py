@@ -111,7 +111,44 @@ def test_deposit_trace_requires_amount():
     assert "amount" in str(ei.value)
 
 
-# ---------- pnl report walking (fixture, offline) ----------
+# ---------- qbo_query guardrails ----------
+
+def test_query_rejects_non_select():
+    with pytest.raises(tokens.QboError) as ei:
+        tools.qbo_query({"query": "delete from Deposit where Id = '1'"})
+    assert "READ-ONLY" in str(ei.value)
+
+
+def test_query_rejects_statement_stacking():
+    with pytest.raises(tokens.QboError) as ei:
+        tools.qbo_query({"query": "select * from Deposit; drop table Deposit"})
+    assert "semicolons" in str(ei.value)
+
+
+def test_query_rejects_comment_markers():
+    with pytest.raises(tokens.QboError):
+        tools.qbo_query({"query": "select * from Deposit -- evil"})
+
+
+def test_query_clamps_maxresults(monkeypatch):
+    class FakeTransport:
+        def realm(self):
+            return "1"
+
+        def get(self, path, query=None):
+            assert query.endswith("maxresults 200"), query
+            assert "maxresults 9999" not in query
+            return {"QueryResponse": {"Deposit": [{"Id": "1"}]}}
+    import qbo_ops.tools as T
+    monkeypatch.setattr(T, "_transport", lambda: FakeTransport())
+    r = tools.qbo_query({"query": "select * from Deposit maxresults 9999"})
+    assert r["read_only"] is True and r["result_count"] == 1
+
+
+def test_query_empty():
+    with pytest.raises(tokens.QboError):
+        tools.qbo_query({})
+
 
 def _report():
     return {"Rows": {"Row": [
