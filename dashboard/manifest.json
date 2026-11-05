@@ -1,0 +1,9 @@
+{
+  "api": "plugin_api.py",
+  "routes": [
+    { "method": "GET", "path": "/health", "auth": true },
+    { "method": "GET", "path": "/pnl", "auth": true },
+    { "method": "GET", "path": "/audit", "auth": true },
+    { "method": "GET", "path": "/trace", "auth": true }
+  ]
+}
