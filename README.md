@@ -23,6 +23,13 @@ API plumbing.
    verifies the token and the company connection, or tells you exactly
    what's missing.
 
+## Known limitation
+
+The pure `hermes auth add` OAuth path needs upstream `redirect_port` support for
+Intuit exact-match redirect URIs — tracked in
+NousResearch/hermes-agent#149642. Until then, use the BYO-token setup above
+(which is fully supported and what the plugin defaults to).
+
 ## Status
 
 v0.1.0 — day-1 scaffold: token layer (production-hardened), 4 tools,

@@ -10,36 +10,127 @@ import json
 from .tokens import QboCredentials, QboError, TokenLock, qbo_get
 
 
-def _creds():
-    creds = QboCredentials.from_secret_scope()
+class OAuthTransport:
+    """Rule-11 primary path: calls ride Hermes's credentialed_provider_request
+    with the plugin's declared oauth: entry — Hermes owns the grant, the
+    token and the refresh. The plugin never touches tokens."""
+
+    def __init__(self, provider_id="quickbooks"):
+        self.provider_id = provider_id
+
+    def realm(self):
+        return _secret("QBO_OPS_REALM_ID")
+
+    def get(self, path, query=None):
+        from hermes_cli.plugin_provider_requests import (
+            ProviderNotSignedIn, credentialed_provider_request)
+
+        realm = self.realm()
+        if not realm:
+            raise QboError("QBO_OPS_REALM_ID is not set (your QBO company ID)")
+        url = f"{API_BASE_HOST}/{realm}/{path}"
+        if query:
+            import urllib.parse
+            url += "?" + urllib.parse.urlencode({"query": query})
+        try:
+            resp = credentialed_provider_request(self.provider_id, "GET", url, timeout=60)
+        except ProviderNotSignedIn as exc:
+            raise QboError(
+                f"QuickBooks not signed in: {exc}. Run "
+                "`hermes auth add qbo-ops:quickbooks` to connect.") from None
+        except Exception as exc:  # AuthError and friends
+            raise QboError(f"QuickBooks auth error: {exc}") from None
+        if resp.status >= 300:
+            raise QboError(f"QBO API HTTP {resp.status} on {path}: {resp.text[:300]}")
+        return resp.json()
+
+
+API_BASE_HOST = "https://quickbooks.api.intuit.com/v3/company"
+
+
+def _secret(name):
+    try:
+        from agent.secret_scope import get_secret
+        return get_secret(name)
+    except Exception:
+        return None
+
+
+class EnvTransport:
+    """Fallback path (catalog-legal, precedented): BYO refresh token via
+    requires_env secrets; the ported flock-guarded refresher handles rotation."""
+
+    def __init__(self, creds):
+        self.creds = creds
+
+    def realm(self):
+        return self.creds._get("QBO_OPS_REALM_ID")
+
+    def get(self, path, query=None):
+        return qbo_get(self.creds, path, query=query)
+
+
+def _transport():
+    """OAuth-first, env-fallback. A signed-out OAuth grant falls through to
+    env creds when present, else surfaces the setup wizard."""
+    realm = _secret("QBO_OPS_REALM_ID")
+    try:
+        from hermes_cli.plugin_provider_requests import (
+            ProviderNotSignedIn, credentialed_provider_request)
+        # Probe signed-in-ness cheaply: an unsigned grant raises before any HTTP.
+        try:
+            credentialed_provider_request(
+                "quickbooks", "GET",
+                f"{API_BASE_HOST}/(probe)/companyinfo/0", timeout=10)
+        except ProviderNotSignedIn:
+            pass  # signed out -> fall through to env path
+        except QboError:
+            return OAuthTransport()  # signed in; the 404-ish probe error is fine
+        except Exception:
+            return OAuthTransport()
+        return OAuthTransport()
+    except ImportError:
+        pass
+    try:
+        creds = QboCredentials.from_secret_scope()
+    except ImportError:
+        raise QboError(
+            "QBO is not configured yet. Setup takes ~10 minutes: "
+            "(1) create an app at developer.intuit.com — I'll walk you "
+            "through each field; (2) run `hermes auth add "
+            "qbo-ops:quickbooks` (once upstream redirect-port support "
+            "lands) or set these Hermes secrets: QBO_OPS_CLIENT_ID, "
+            "QBO_OPS_CLIENT_SECRET, QBO_OPS_REFRESH_TOKEN, "
+            "QBO_OPS_REALM_ID. Say 'set up QuickBooks' to start.") from None
     missing = creds.missing()
     if missing:
         raise QboError(
             "QBO is not configured yet. Setup takes ~10 minutes: "
             "(1) create an app at developer.intuit.com — I'll walk you "
-            "through each field; (2) set these Hermes secrets: "
-            + ", ".join(missing)
-            + "; (3) I'll run the OAuth consent flow and verify the "
-              "connection. Say 'set up QuickBooks' to start.")
-    return creds
+            "through each field; (2) either run `hermes auth add "
+            "qbo-ops:quickbooks` or set these Hermes secrets: "
+            + ", ".join(k for k in missing if k != "QBO_OPS_REFRESH_TOKEN")
+            + " plus QBO_OPS_REFRESH_TOKEN; (3) set QBO_OPS_REALM_ID. "
+              "Say 'set up QuickBooks' to start.")
+    return EnvTransport(creds)
 
 
 def health(args=None):
-    """Connection health: validates credentials, refreshes the token if
-    needed, and confirms the realm answers a real API call. Never raises —
-    returns a status dict (setup wizard message when unconfigured)."""
+    """Connection health: validates credentials, and confirms the realm
+    answers a real API call. Never raises — returns a status dict (setup
+    wizard message when unconfigured)."""
     try:
-        creds = _creds()
-        with TokenLock(creds):
-            token = creds.refresh()
-        realm = creds._get("QBO_OPS_REALM_ID")
-        info = qbo_get(creds, f"companyinfo/{realm}")
+        transport = _transport()
+        realm = transport.realm()
+        if not realm:
+            raise QboError("QBO_OPS_REALM_ID is not set (your QBO company ID)")
+        info = transport.get(f"companyinfo/{realm}")
         company = info.get("CompanyInfo", {}).get("CompanyName", "(unnamed)")
         return {
             "status": "connected",
             "company": company,
             "realm_id": realm,
-            "token_valid": bool(token),
+            "transport": type(transport).__name__,
         }
     except QboError as e:
         msg = str(e)
@@ -60,8 +151,9 @@ def pnl(args):
     Uses the QBO reports endpoint (reports are not SQL-queryable)."""
     start = args.get("start_date") or (datetime.date.today().replace(day=1).isoformat())
     end = args.get("end_date") or datetime.date.today().isoformat()
-    creds = _creds()
-    report = qbo_get(creds, f"reports/ProfitAndLoss?start_date={start}&end_date={end}")
+    transport = _transport()
+    report = transport.get(
+        f"reports/ProfitAndLoss?start_date={start}&end_date={end}")
     totals = {}
 
     def walk(rs):
@@ -106,12 +198,12 @@ def udf_audit(args):
     """Close audit: list deposits/journal entries created or modified since a
     cutoff, flagging entries dated before their creation date (backdating)."""
     cutoff = args.get("since") or (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
-    creds = _creds()
+    transport = _transport()
     flags = []
     for entity in ("Deposit", "JournalEntry"):
         query = (f"select * from {entity} where MetaData.CreateTime >= '{cutoff}' "
                  f"maxresults 100")
-        resp = qbo_get(creds, "query", query=query)
+        resp = transport.get("query", query=query)
         for obj in resp.get("QueryResponse", {}).get(entity, []):
             created = obj.get("MetaData", {}).get("CreateTime", "")
             txn_date = obj.get("TxnDate", "")
@@ -135,9 +227,9 @@ def deposit_trace(args):
         raise QboError("deposit_trace needs an 'amount' (e.g. 412.00)")
     days = int(args.get("days", 30))
     since = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
-    creds = _creds()
+    transport = _transport()
     query = (f"select * from Deposit where TxnDate >= '{since}' maxresults 200")
-    resp = qbo_get(creds, "query", query=query)
+    resp = transport.get("query", query=query)
     hits = []
     for dep in resp.get("QueryResponse", {}).get("Deposit", []):
         for line in dep.get("Line", []):
@@ -199,8 +291,10 @@ def register(ctx):
     for name, (handler, _desc) in TOOLS.items():
         def wrapped(args, _h=handler, **kwargs):
             try:
-                return _h(args if isinstance(args, dict) else {})
+                result = _h(args if isinstance(args, dict) else {})
             except QboError as e:
-                return {"status": "error", "message": str(e)}
+                result = {"status": "error", "message": str(e)}
+            # Handlers return JSON strings (see plugin dev guide, common mistakes)
+            return json.dumps(result)
         ctx.register_tool(name=name, toolset="qbo-ops",
                           schema=SCHEMAS[name], handler=wrapped, emoji="📒")

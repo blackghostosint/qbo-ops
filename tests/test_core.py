@@ -82,28 +82,26 @@ def test_lock_contention_fails_loudly(tmp_path):
 
 # ---------- tools: error/wizard paths (offline) ----------
 
-def test_health_unconfigured_returns_wizard():
+def test_health_unconfigured_returns_wizard(monkeypatch):
     import qbo_ops.tools as T
-    orig = T._creds
-    T._creds = lambda: (_ for _ in ()).throw(tokens.QboError(
-        "QBO is not configured yet. Setup takes ~10 minutes"))
-    try:
-        r = T.health({})
-    finally:
-        T._creds = orig
+
+    def boom():
+        raise tokens.QboError(
+            "QBO is not configured yet. Setup takes ~10 minutes")
+    monkeypatch.setattr(T, "_transport", boom)
+    r = T.health({})
     assert r["status"] == "unconfigured"
     assert "not configured" in r["message"]
 
 
-def test_health_reauth_path():
+def test_health_reauth_path(monkeypatch):
     import qbo_ops.tools as T
-    orig = T._creds
-    T._creds = lambda: (_ for _ in ()).throw(tokens.QboError(
-        "Intuit refresh failed HTTP 400: invalid_grant"))
-    try:
-        r = T.health({})
-    finally:
-        T._creds = orig
+
+    def boom():
+        raise tokens.QboError(
+            "Intuit refresh failed HTTP 400: invalid_grant")
+    monkeypatch.setattr(T, "_transport", boom)
+    r = T.health({})
     assert r["status"] == "reauth_required"
 
 
@@ -137,15 +135,35 @@ def _report():
 
 def test_pnl_walks_section_summaries(monkeypatch):
     import qbo_ops.tools as T
-    fake_creds = tokens.QboCredentials.from_mapping({
-        "QBO_OPS_CLIENT_ID": "x", "QBO_OPS_CLIENT_SECRET": "y",
-        "QBO_OPS_REFRESH_TOKEN": "z", "QBO_OPS_REALM_ID": "1"})
-    monkeypatch.setattr(T, "_creds", lambda: fake_creds)
-    monkeypatch.setattr(T, "qbo_get", lambda c, p, query=None: _report())
+
+    class FakeTransport:
+        def realm(self):
+            return "1"
+
+        def get(self, path, query=None):
+            return _report()
+
+    monkeypatch.setattr(T, "_transport", lambda: FakeTransport())
     r = T.pnl({"start_date": "2026-10-01", "end_date": "2026-10-31"})
     assert r["income"] == 14256.69
     assert r["expenses"] == 5139.01 + 1084.08
     assert r["net_income"] == round(14256.69 - 5139.01 - 1084.08, 2)
+
+
+def test_tool_wrapper_returns_json_string():
+    import json as _json
+
+    import qbo_ops.tools as T
+
+    class Ctx:
+        def register_tool(self, name, toolset, schema, handler, emoji=None):
+            Ctx.registered[name] = handler
+    Ctx.registered = {}
+    T.register(Ctx())
+    for name, handler in Ctx.registered.items():
+        out = handler({})
+        assert isinstance(out, str), f"{name} handler must return a JSON string"
+        _json.loads(out)  # and valid JSON
 
 
 def test_col_value_tolerates_garbage():
