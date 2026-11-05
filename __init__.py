@@ -14,6 +14,16 @@ __version__ = "0.1.0"
 
 
 def register(ctx):
+    from pathlib import Path
+
     from qbo_ops.tools import register as register_tools
 
     register_tools(ctx)
+    skill_md = Path(__file__).resolve().parent / "skills" / "qbo-ops-reconciliation" / "SKILL.md"
+    try:
+        ctx.register_skill(
+            "qbo-ops-reconciliation", skill_md,
+            description="QBO reconciliation tradecraft: close audits, deposit-wash detection, backdated-entry forensics.",
+        )
+    except Exception:
+        pass  # skill registration is best-effort; tools are the core surface
