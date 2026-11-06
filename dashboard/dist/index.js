@@ -63,7 +63,9 @@
 
   function fmt(n) {
     if (n === null || n === undefined || isNaN(n)) return "—";
-    return "$" + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    var neg = n < 0;
+    var abs = "$" + Math.abs(Number(n)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return neg ? "-" + abs : abs;
   }
 
   function QboPage() {
