@@ -82,13 +82,16 @@ def _transport():
             credentialed_provider_request(
                 "quickbooks", "GET",
                 f"{API_BASE_HOST}/(probe)/companyinfo/0", timeout=10)
-        except ProviderNotSignedIn:
-            pass  # signed out -> fall through to env path
+        except (ProviderNotSignedIn, PermissionError):
+            # Signed out — or not called from a plugin frame (probe context
+            # can't grant provider access). Either way: fall through to env.
+            pass
         except QboError:
             return OAuthTransport()  # signed in; the 404-ish probe error is fine
         except Exception:
+            pass  # unknown probe failure: never trust the oauth path on a guess
+        else:
             return OAuthTransport()
-        return OAuthTransport()
     except ImportError:
         pass
     try:
