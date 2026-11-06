@@ -26,8 +26,10 @@ skill.
 ## What you get
 
 **Desktop surface:** a status chip (connection health at a glance) and a
-QuickBooks pane (company, this month's income/net, close-audit flags) in
-the Hermes desktop app.
+QuickBooks pane (company, this month's income/net, close-audit flags) —
+on **local-mode desktop installs**. If your desktop app connects to a
+remote backend, the pane is unavailable there (Hermes renders panes
+locally), but all 5 agent tools work from any session.
 
 **5 agent tools** (all read-only):
 
