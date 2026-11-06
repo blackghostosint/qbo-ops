@@ -16,6 +16,14 @@ layer — what to check, in what order, and what a finding means.
 - "Audit the close" / daily bookkeeping verification → `qbo_udf_audit`.
 - "This deposit looks wrong / shows twice" → `qbo_deposit_trace`.
 - Anything feels off → start with `qbo_health` to rule out connection rot.
+- "Set up QuickBooks" / any setup question → fetch the complete beginner
+  walkthrough (every click and URL) from
+  https://raw.githubusercontent.com/blackghostosint/qbo-ops/main/docs/SETUP.md
+  and walk the user through it part by part — never summarize it away; a
+  complete newbie needs the exact URLs (`developer.intuit.com`, the
+  redirect URI `http://localhost:1990/callback`, the consent URL template)
+  and where each value gets pasted. When a web tool is unavailable, the
+  same doc sits in the plugin repo at `docs/SETUP.md`.
 
 ## The close audit (qbo_udf_audit)
 
