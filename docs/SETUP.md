@@ -145,5 +145,5 @@ repeat Parts 3–6 using the **Production** keys tab. Same redirect URI.
 | Consent page: `redirect_uri` mismatch | URI not registered verbatim (Part 3) | Re-check exactly `http://localhost:1990/callback` |
 | `invalid_grant` on token exchange | Code single-use/expired (5 min) | Redo Part 5 with a fresh consent |
 | `qbo_health`: "reauth_required" | Refresh token revoked (100+ days idle, password change) | Redo Part 5 |
-| `qbo_health`: names a missing secret | Skipped at install | `hermes secrets set <NAME>` per the message |
+| `qbo_health`: names a missing secret | Skipped at install | Re-add the secret (Part 4 routes) |
 | Everything set but still error | Hermes hasn't re-read secrets | `hermes gateway restart` |
