@@ -8,7 +8,9 @@
   var React = SDK.React;
   var hooks = SDK.hooks;
   var C = SDK.components || {};
-  var fetchJSON = SDK.authedFetch || SDK.fetchJSON || function (url, opts) {
+  // fetchJSON returns parsed JSON (achievements' proven pattern); authedFetch
+  // returns the raw Response — its .status was masquerading as health status.
+  var fetchJSON = SDK.fetchJSON || function (url, opts) {
     return fetch(url, opts).then(function (r) { return r.json(); });
   };
 
