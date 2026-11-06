@@ -1,4 +1,11 @@
 {
+  "name": "qbo-ops",
+  "label": "QuickBooks",
+  "description": "QuickBooks Online operations: connection health, this month's P&L, close-audit flags — plus 5 agent tools (health, pnl, udf_audit, deposit_trace, query).",
+  "icon": "BookOpen",
+  "version": "0.1.0",
+  "tab": { "path": "/qbo-ops", "position": "after:analytics" },
+  "entry": "dist/index.js",
   "api": "plugin_api.py",
   "routes": [
     { "method": "GET", "path": "/health", "auth": true },
