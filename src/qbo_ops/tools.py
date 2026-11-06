@@ -109,12 +109,21 @@ def _transport():
     if missing:
         raise QboError(
             "QBO is not configured yet. Setup takes ~10 minutes: "
-            "(1) create an app at developer.intuit.com — I'll walk you "
-            "through each field; (2) either run `hermes auth add "
-            "qbo-ops:quickbooks` or set these Hermes secrets: "
+            "(1) create a free app at https://developer.intuit.com "
+            "(Dashboard → Create an app → QuickBooks Online Accounting); "
+            "(2) under Development → Keys, copy the Client ID and Secret, "
+            "and register this exact redirect URI: "
+            "http://localhost:1990/callback; "
+            "(3) either run `hermes auth add qbo-ops:quickbooks` (once "
+            "upstream redirect-port support lands) or set these Hermes "
+            "secrets: "
             + ", ".join(k for k in missing if k != "QBO_OPS_REFRESH_TOKEN")
-            + " plus QBO_OPS_REFRESH_TOKEN; (3) set QBO_OPS_REALM_ID. "
-              "Say 'set up QuickBooks' to start.")
+            + " plus QBO_OPS_REFRESH_TOKEN — the consent URL and a full "
+              "copy-paste walkthrough are at "
+              "https://github.com/blackghostosint/qbo-ops/blob/main/docs/SETUP.md; "
+            "(4) set QBO_OPS_REALM_ID. "
+            "Or just say 'set up QuickBooks' and I'll walk you through "
+            "every step.")
     return EnvTransport(creds)
 
 

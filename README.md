@@ -46,6 +46,12 @@ a bookkeeper.
 
 ## Setup (~10 minutes)
 
+**Never touched a developer portal? Follow the complete walkthrough:
+[docs/SETUP.md](docs/SETUP.md)** — every click, every URL, part by part,
+including the consent flow and where each value gets pasted.
+
+Short version:
+
 1. **Create an Intuit app** at [developer.intuit.com](https://developer.intuit.com)
    (accounting scope). This one step no plugin can automate — Intuit
    requires the app to be yours. Redirect URI: `http://localhost:1990/callback`.
