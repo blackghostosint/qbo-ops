@@ -74,12 +74,20 @@ Trace a suspect amount across the deposit window:
 
 ## Health and failure interpretation (qbo_health)
 
-- `unconfigured` → walk the user through setup; never dump raw errors.
+- `unconfigured` → run the guided setup (see `references/guided_setup.py`).
 - `reauth_required` → Intuit revoked the refresh token (100+ days idle,
   password change, or app-side family revocation). Re-run consent; no data
   is lost.
 - `error` with HTTP 403 → the user's Intuit app lacks the accounting scope
   or the company isn't authorized to the app (re-consent needed).
+- **Before improvising any diagnosis, consult the failure catalog** in
+  https://raw.githubusercontent.com/blackghostosint/qbo-ops/main/docs/SETUP.md
+  (Troubleshooting section — "Deeper failure catalog"): every known error
+  signature (invalid_client, unauthorized_client, 403, invalid_grant,
+  429, empty-query results, realm mismatch, tools-missing-after-install)
+  has a documented root cause and remediation. Only fall back to
+  first-principles debugging for signatures not in the catalog — and add
+  the new one to the catalog when solved.
 - Token refreshes are handled by Hermes (oauth path) or the plugin's
   flock-guarded refresher (BYO path). If you ever see two refreshes race,
   report it as a bug — rotation races are how whole token families die.

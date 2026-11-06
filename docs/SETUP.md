@@ -147,3 +147,17 @@ repeat Parts 3–6 using the **Production** keys tab. Same redirect URI.
 | `qbo_health`: "reauth_required" | Refresh token revoked (100+ days idle, password change) | Redo Part 5 |
 | `qbo_health`: names a missing secret | Skipped at install | Re-add the secret (Part 4 routes) |
 | Everything set but still error | Hermes hasn't re-read secrets | `hermes gateway restart` |
+
+### Deeper failure catalog (for agent diagnosis)
+
+| Error signature | Root cause | Remediation |
+|---|---|---|
+| HTTP 400 `invalid_client` | Client ID/Secret pair wrong for the token endpoint (prod keys vs dev consent or vice versa) | Confirm which keypair is stored; consent and keys must come from the same tab (Development or Production) |
+| HTTP 400 `unauthorized_client` | App lacks the accounting scope / app type wrong | Recreate app with **QuickBooks Online Accounting** selected; re-consent |
+| HTTP 403 on API calls | Company not authorized to the app, or scope lost | Re-run consent (Part 5) — the company must be the one you signed into |
+| `invalid_grant` at refresh (was working) | Token family revoked: 100+ days idle, password change, or another integration rotated the token out from under us | Re-consent (Part 5). Prevention: only one integration should own the refresh token |
+| Two integrations, tokens keep dying | Refresh-token rotation: each integration refreshing invalidates the other's copy | Give each integration its own Intuit app; don't share a client pair |
+| HTTP 429 | Intuit rate limit (500 req/min typical) | Back off 60s; the plugin surfaces it as an error state, not a hang |
+| `qbo_query` returns empty but data exists | Query entity/field misspelled, or date format wrong | QBO SQL wants `YYYY-MM-DD` quoted dates; entity names are case-sensitive (`Purchase`, not `purchases`) |
+| Realm ID mismatch / "company not found" | realmId from sandbox consent used with production keys (or vice versa) | Re-consent against the same environment as the stored keys; the realmId rides the callback URL |
+| Dashboard shows plugin but tools missing in session | Plugin installed after session start | New session (tools load at session start), or restart the backend |
