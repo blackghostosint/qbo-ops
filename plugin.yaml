@@ -1,6 +1,6 @@
 name: qbo-ops
-version: 0.1.0
-description: "QuickBooks Online operations for Hermes: connection health, P&L reports, close audits and deposit tracing — with a desktop status pane. Reconciliation tradecraft built in, not just API plumbing."
+version: 0.2.0
+description: "QuickBooks Online operations for Hermes: connection health, P&L reports, close audits, deposit tracing and a guarded read-only SQL query tool — with a web/desktop dashboard and bundled reconciliation skill. Reconciliation tradecraft built in, not just API plumbing."
 author: Frank Schwarz
 kind: backend
 requires_hermes: ">=0.19"
@@ -18,12 +18,8 @@ requires_env:
     description: "Intuit app client ID (from developer.intuit.com)"
     secret: false
   - name: QBO_OPS_CLIENT_SECRET
-    description: "Intuit app client secret"
+    description: "Intuit app client secret — used only by Hermes's oauth: grant flow, never read by plugin code"
     secret: true
-  - name: QBO_OPS_REFRESH_TOKEN
-    description: "QBO OAuth refresh token (BYO-token setup; optional if using the oauth: flow)"
-    secret: true
-    required: false
   - name: QBO_OPS_REALM_ID
     description: "QBO company (realm) ID"
     secret: false
@@ -40,6 +36,6 @@ config_schema:
   allow_writes:
     type: boolean
     default: false
-    description: "Enable WRITE operations (creating/editing QBO transactions). Read-only unless YOU flip this. Writes also pass through Hermes's normal approval surface. Intentionally disabled in v0.1 — the write tool ships in v0.2 after sandbox verification."
+    description: "Enable WRITE operations (creating/editing QBO transactions). Read-only unless YOU flip this. Writes also pass through Hermes's normal approval surface. Intentionally disabled in v0.2 — the write tool ships after sandbox verification."
 license: MIT
 tags: [quickbooks, accounting, bookkeeping, finance, smb]

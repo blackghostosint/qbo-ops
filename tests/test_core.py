@@ -1,5 +1,12 @@
-"""Tests for qbo-ops core logic — offline (no network, no credentials)."""
+"""Tests for qbo-ops core logic — offline (no network, no credentials).
+
+v0.2 (catalog review): oauth-only credential path. The plugin never holds,
+refreshes or stores tokens — Hermes does via the declared oauth: entry and
+credentialed_provider_request. All token-handling tests were removed with
+the code (see git history for the BYO-path coverage).
+"""
 import importlib
+import json
 import sys
 import types
 from pathlib import Path
@@ -14,96 +21,72 @@ tokens = importlib.import_module("qbo_ops.tokens")
 tools = importlib.import_module("qbo_ops.tools")
 
 
-# ---------- QboCredentials ----------
-
-def test_missing_reports_all_keys():
-    creds = tokens.QboCredentials.from_mapping({})
-    assert set(creds.missing()) == {
-        "QBO_OPS_CLIENT_ID", "QBO_OPS_CLIENT_SECRET",
-        "QBO_OPS_REFRESH_TOKEN", "QBO_OPS_REALM_ID"}
+def _patch_qbo_get(monkeypatch, fn):
+    monkeypatch.setattr(tokens, "qbo_get", fn)
+    monkeypatch.setattr(tools, "qbo_get", fn)
 
 
-def test_missing_reports_subset():
-    creds = tokens.QboCredentials.from_mapping({"QBO_OPS_CLIENT_ID": "x"})
-    assert creds.missing() == [
-        "QBO_OPS_CLIENT_SECRET", "QBO_OPS_REFRESH_TOKEN", "QBO_OPS_REALM_ID"]
+def _patch_realm(monkeypatch, value):
+    monkeypatch.setattr(tokens, "realm", lambda: value)
+    monkeypatch.setattr(tools, "_realm", lambda: value)
 
 
-def test_refresh_raises_clean_when_unconfigured():
-    creds = tokens.QboCredentials.from_mapping({})
-    with pytest.raises(tokens.QboError) as ei:
-        creds.refresh()
-    assert "incomplete" in str(ei.value)
+# ---------- rule 11: no token handling exists in the plugin ----------
+
+def test_no_token_refresh_or_storage_code():
+    import inspect
+    src = inspect.getsource(tokens) + inspect.getsource(tools)
+    for banned in ("refresh_token", "client_secret", "TokenLock", "flock",
+                   "grant_type", "QBO_OPS_CLIENT_SECRET"):
+        assert banned not in src, f"rule-11 violation: {banned} in plugin code"
 
 
-def test_cached_access_token_reused():
-    creds = tokens.QboCredentials.from_mapping({
-        "QBO_OPS_CLIENT_ID": "x", "QBO_OPS_CLIENT_SECRET": "y",
-        "QBO_OPS_REFRESH_TOKEN": "z"})
-    creds._access_token, creds._access_exp = "cached", 9_999_999_999.0
-    assert creds.refresh() == "cached"  # no network call
+def test_tokens_module_uses_provider_request():
+    import inspect
+    assert "credentialed_provider_request" in inspect.getsource(tokens)
 
 
-# ---------- TokenLock ----------
+# ---------- health: wizard / reauth / connected ----------
 
-def test_lock_acquire_and_release(tmp_path):
-    creds = tokens.QboCredentials.from_mapping({})
-    lp = str(tmp_path / "t.lock")
-    with tokens.TokenLock(creds, lock_path=lp, wait_s=1):
-        pass  # acquired + released
-    # second acquire must succeed immediately
-    with tokens.TokenLock(creds, lock_path=lp, wait_s=1):
-        pass
-
-
-def test_lock_contention_fails_loudly(tmp_path):
-    import multiprocessing as mp
-
-    lp = str(tmp_path / "t.lock")
-
-    def _holder_block():
-        import time
-        import fcntl
-        f = open(lp, "w")
-        fcntl.flock(f, fcntl.LOCK_EX)
-        time.sleep(5)
-
-    p = mp.get_context("fork").Process(target=_holder_block)
-    p.start()
-    import time
-    time.sleep(0.5)  # let the holder grab the lock
-    creds = tokens.QboCredentials.from_mapping({})
-    with pytest.raises(tokens.QboError) as ei:
-        tokens.TokenLock(creds, lock_path=lp, wait_s=1).__enter__()
-    p.terminate()
-    p.join()
-    assert "refusing to deadlock" in str(ei.value)
-
-
-# ---------- tools: error/wizard paths (offline) ----------
-
-def test_health_unconfigured_returns_wizard(monkeypatch):
-    import qbo_ops.tools as T
-
-    def boom():
-        raise tokens.QboError(
-            "QBO is not configured yet. Setup takes ~10 minutes")
-    monkeypatch.setattr(T, "_transport", boom)
-    r = T.health({})
+def test_health_missing_realm_returns_wizard(monkeypatch):
+    _patch_realm(monkeypatch, None)
+    r = tools.health({})
     assert r["status"] == "unconfigured"
-    assert "not configured" in r["message"]
+    assert "auth add qbo-ops:quickbooks" in r["message"]
+    assert "developer.intuit.com" in r["message"] or "REALM_ID" in r["message"]
+    # ask 2: no secret values requested in chat
+    assert "QBO_OPS_CLIENT_SECRET" not in r["message"].split("walk")[0]
 
 
-def test_health_reauth_path(monkeypatch):
-    import qbo_ops.tools as T
+def test_health_not_signed_in(monkeypatch):
+    _patch_realm(monkeypatch, "123")
 
-    def boom():
-        raise tokens.QboError(
-            "Intuit refresh failed HTTP 400: invalid_grant")
-    monkeypatch.setattr(T, "_transport", boom)
-    r = T.health({})
+    def boom(path, query=None):
+        raise tokens.QboError("QuickBooks not signed in: run hermes auth add")
+    _patch_qbo_get(monkeypatch, boom)
+    r = tools.health({})
     assert r["status"] == "reauth_required"
 
+
+def test_health_connected(monkeypatch):
+    _patch_realm(monkeypatch, "123")
+    _patch_qbo_get(monkeypatch,
+                   lambda path, query=None: {"CompanyInfo": {"CompanyName": "Test Co"}})
+    r = tools.health({})
+    assert r["status"] == "connected" and r["company"] == "Test Co"
+
+
+def test_health_never_raises(monkeypatch):
+    _patch_realm(monkeypatch, "123")
+
+    def boom(path, query=None):
+        raise RuntimeError("unexpected")
+    _patch_qbo_get(monkeypatch, boom)
+    r = tools.health({})
+    assert r["status"] == "error"
+
+
+# ---------- deposit trace ----------
 
 def test_deposit_trace_requires_amount():
     with pytest.raises(tokens.QboError) as ei:
@@ -111,44 +94,7 @@ def test_deposit_trace_requires_amount():
     assert "amount" in str(ei.value)
 
 
-# ---------- qbo_query guardrails ----------
-
-def test_query_rejects_non_select():
-    with pytest.raises(tokens.QboError) as ei:
-        tools.qbo_query({"query": "delete from Deposit where Id = '1'"})
-    assert "READ-ONLY" in str(ei.value)
-
-
-def test_query_rejects_statement_stacking():
-    with pytest.raises(tokens.QboError) as ei:
-        tools.qbo_query({"query": "select * from Deposit; drop table Deposit"})
-    assert "semicolons" in str(ei.value)
-
-
-def test_query_rejects_comment_markers():
-    with pytest.raises(tokens.QboError):
-        tools.qbo_query({"query": "select * from Deposit -- evil"})
-
-
-def test_query_clamps_maxresults(monkeypatch):
-    class FakeTransport:
-        def realm(self):
-            return "1"
-
-        def get(self, path, query=None):
-            assert query.endswith("maxresults 200"), query
-            assert "maxresults 9999" not in query
-            return {"QueryResponse": {"Deposit": [{"Id": "1"}]}}
-    import qbo_ops.tools as T
-    monkeypatch.setattr(T, "_transport", lambda: FakeTransport())
-    r = tools.qbo_query({"query": "select * from Deposit maxresults 9999"})
-    assert r["read_only"] is True and r["result_count"] == 1
-
-
-def test_query_empty():
-    with pytest.raises(tokens.QboError):
-        tools.qbo_query({})
-
+# ---------- pnl report walking (fixture) ----------
 
 def _report():
     return {"Rows": {"Row": [
@@ -171,39 +117,85 @@ def _report():
 
 
 def test_pnl_walks_section_summaries(monkeypatch):
-    import qbo_ops.tools as T
-
-    class FakeTransport:
-        def realm(self):
-            return "1"
-
-        def get(self, path, query=None):
-            return _report()
-
-    monkeypatch.setattr(T, "_transport", lambda: FakeTransport())
-    r = T.pnl({"start_date": "2026-10-01", "end_date": "2026-10-31"})
+    _patch_realm(monkeypatch, "1")
+    _patch_qbo_get(monkeypatch, lambda path, query=None: _report())
+    r = tools.pnl({"start_date": "2026-10-01", "end_date": "2026-10-31"})
     assert r["income"] == 14256.69
     assert r["expenses"] == 5139.01 + 1084.08
     assert r["net_income"] == round(14256.69 - 5139.01 - 1084.08, 2)
 
 
-def test_tool_wrapper_returns_json_string():
-    import json as _json
+# ---------- qbo_query guardrails ----------
 
-    import qbo_ops.tools as T
+def test_query_rejects_non_select():
+    with pytest.raises(tokens.QboError) as ei:
+        tools.qbo_query({"query": "delete from Deposit where Id = '1'"})
+    assert "READ-ONLY" in str(ei.value)
 
-    class Ctx:
-        def register_tool(self, name, toolset, schema, handler, emoji=None):
-            Ctx.registered[name] = handler
-    Ctx.registered = {}
-    T.register(Ctx())
-    for name, handler in Ctx.registered.items():
-        out = handler({})
-        assert isinstance(out, str), f"{name} handler must return a JSON string"
-        _json.loads(out)  # and valid JSON
+
+def test_query_rejects_statement_stacking():
+    with pytest.raises(tokens.QboError):
+        tools.qbo_query({"query": "select * from Deposit; drop table Deposit"})
+
+
+def test_query_rejects_comment_markers():
+    with pytest.raises(tokens.QboError):
+        tools.qbo_query({"query": "select * from Deposit -- evil"})
+
+
+def test_query_clamps_maxresults(monkeypatch):
+    seen = {}
+
+    def fake(path, query=None):
+        seen["query"] = query
+        return {"QueryResponse": {"Deposit": [{"Id": "1"}]}}
+    _patch_qbo_get(monkeypatch, fake)
+    r = tools.qbo_query({"query": "select * from Deposit maxresults 9999"})
+    assert seen["query"].endswith("maxresults 200")
+    assert "9999" not in seen["query"]
+    assert r["read_only"] is True and r["result_count"] == 1
+
+
+def test_query_empty():
+    with pytest.raises(tokens.QboError):
+        tools.qbo_query({})
 
 
 def test_col_value_tolerates_garbage():
     assert tools._col_value([{"value": "a"}, {"value": "not-a-number"}]) == 0.0
     assert tools._col_value([{"value": "a"}, {"value": "3.5"}]) == 3.5
     assert tools._col_value([{"value": "a"}]) == 0.0
+
+
+# ---------- handler contract (plugin dev guide) ----------
+
+def test_tool_wrapper_returns_json_string():
+    class Ctx:
+        registered = {}
+
+        def register_tool(self, name, toolset, schema, handler, emoji=None):
+            Ctx.registered[name] = handler
+    Ctx.registered = {}
+    tools.register(Ctx())
+    assert len(Ctx.registered) == 5
+    for name, handler in Ctx.registered.items():
+        out = handler({})
+        assert isinstance(out, str), f"{name} must return a JSON string"
+        parsed = json.loads(out)  # and valid JSON
+        assert isinstance(parsed, dict)
+
+
+# ---------- guided setup: secrets never transit chat (review ask 2) ----------
+
+def test_guided_setup_never_collects_secrets():
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent
+                           / "skills" / "qbo-ops-reconciliation" / "references"))
+    import guided_setup as g
+    for step in g.STEPS:
+        text = step.say + " " + step.check
+        assert "paste the Client Secret" not in text
+        assert "paste the client secret" not in text
+        assert "refresh_token" not in step.say  # no token handling at all
+        assert "curl" not in step.say  # no manual token exchange
+    # realm ID (non-secret) is the only storable-by-agent value
+    assert any("QBO_OPS_REALM_ID" in s.say for s in g.STEPS)

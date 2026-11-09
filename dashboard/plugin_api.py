@@ -1,12 +1,13 @@
 """Authenticated, profile-scoped Desktop API under /api/plugins/qbo-ops.
 
-Mirrors jot's pattern: Hermes imports this as a flat module, independently
-of register(); we load our own sibling modules by explicit path only — no
-global sys.path changes, no Hermes internals.
+Hermes imports this as a flat module, independently of register(); we load
+our sibling package by explicit path only — no global sys.path changes,
+no Hermes internals.
 """
 import asyncio
 import datetime
-import importlib.util
+import sys
+import types
 from pathlib import Path
 
 from fastapi import APIRouter
@@ -15,32 +16,22 @@ from fastapi.responses import JSONResponse
 _ROOT = Path(__file__).resolve().parent.parent
 _SRC = _ROOT / "src"
 
-# Register our own package by explicit path (no global sys.path changes):
-# tools.py uses relative imports, so it must load as part of a package.
-import sys
-import types
-
+# Register our own package by explicit path (tools.py uses relative imports).
 _pkg = types.ModuleType("qbo_ops")
 _pkg.__path__ = [str(_SRC / "qbo_ops")]
-sys.modules["qbo_ops"] = _pkg
+sys.modules.setdefault("qbo_ops", _pkg)
 import importlib
 
-_tokens = importlib.import_module("qbo_ops.tokens")
 _tools = importlib.import_module("qbo_ops.tools")
 
-QboError = _tokens.QboError
 router = APIRouter()
-
-
-def _creds():
-    return _tools._creds()
 
 
 @router.get("/health")
 async def health():
     try:
         return await asyncio.to_thread(_tools.health, None)
-    except QboError as e:
+    except Exception as e:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=200)
 
 
@@ -51,7 +42,7 @@ async def pnl():
             "end_date": today.isoformat()}
     try:
         return await asyncio.to_thread(_tools.pnl, args)
-    except QboError as e:
+    except Exception as e:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=200)
 
 
@@ -59,12 +50,12 @@ async def pnl():
 async def audit():
     try:
         return await asyncio.to_thread(_tools.udf_audit, {})
-    except QboError as e:
+    except Exception as e:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=200)
 
 
 @router.get("/trace")
 async def trace():
-    # Placeholder: the desktop pane links into conversation for interactive
-    # traces; the tool is the interactive surface, not a GET route.
+    # The desktop pane links into conversation for interactive traces; the
+    # qbo_deposit_trace agent tool is the interactive surface, not a GET route.
     return {"hint": "use the qbo_deposit_trace agent tool with an amount"}

@@ -3,9 +3,11 @@
 This guide assumes you have **never** touched a developer portal. Every
 click is listed. Time: ~10 minutes, one time only.
 
-You will create: an Intuit developer app (free), copy two codes into
-Hermes, paste one more from a one-time consent page, and paste your
-company ID. After that, the plugin refreshes everything itself.
+**One rule throughout: your Client Secret and any token are YOURS — they
+never need to be pasted into a chat with your agent.** They go only into
+Hermes's install-time prompt or your own `~/.hermes/.env`, and the grant
+is created by `hermes auth add` in your own terminal. Your agent can
+verify things exist; it never needs to see their values.
 
 ---
 
@@ -14,104 +16,67 @@ company ID. After that, the plugin refreshes everything itself.
 1. Go to **https://developer.intuit.com** and click **Sign up** (top right).
    - Use your normal email; create a password. Verify the email if asked.
    - Already have Intuit/TurboTax/QuickBooks login? That works — **Sign in**.
-2. Once signed in, open **https://developer.intuit.com/app/developer/dashboard**
-   (this is the "Dashboard" — it's linked in the left sidebar as
-   **Dashboard**).
-3. Click **Create an app** (blue button, top right area).
-4. When asked what the app does, choose **QuickBooks Online and Payments** —
-   then on the next screen select **QuickBooks Online Accounting** only.
-5. Name the app anything you like — e.g. `my-hermes-qbo` — and accept the
-   license terms. Click **Create app**.
+2. Once signed in, open **https://developer.intuit.com/app/developer/dashboard**.
+3. Click **Create an app**.
+4. Choose **QuickBooks Online and Payments**, then select
+   **QuickBooks Online Accounting** only.
+5. Name the app anything you like — e.g. `my-hermes-qbo` — accept the
+   license terms, click **Create app**.
 
-## Part 2 — Get your Client ID and Client Secret (2 min)
+## Part 2 — Register the redirect URI (1 min, the step that breaks for everyone)
 
-6. In your new app's page, find the left sidebar and click **Keys** under
-   the "Development" heading.
-7. You will see two long strings:
-   - **Client ID** — looks like `ABcd1234EfGh5678IjKl90MnOpQrStUv12`
-   - **Client Secret** — looks like a longer random string
-   - (If the secret isn't shown, click **Generate Client Secret**.)
-8. Leave this browser tab open — you'll copy these in Part 4.
-   - Use the **Development** keys first — they are free and safe. Production
-     keys require an Intuit review and are only needed when you connect your
-     real company file later (Part 6 covers that switch).
-
-## Part 3 — Register the redirect URI (1 min, the step that breaks for everyone)
-
-9. Still under **Development → Keys**, find the section **Redirect URIs**.
-10. Paste EXACTLY this, character for character:
+6. In your app's left sidebar click **Keys** under the **Development** heading.
+7. Find the **Redirect URIs** section and paste EXACTLY this, character for
+   character:
     ```
     http://localhost:1990/callback
     ```
-11. Click **Save**. Double-check there is no trailing slash and the scheme
-    is `http://` not `https://` — **a mismatch here is the #1 setup
-    failure** (the consent page will say `redirect_uri` error later).
+8. Click **Save**. No trailing slash; `http://` not `https://` — **a
+   mismatch here is the #1 setup failure**.
 
-## Part 4 — Put the credentials into Hermes (2 min)
+## Part 3 — Enter your Client ID and Secret yourself (2 min)
 
-In a terminal, run the installer prompt flow:
+9. Still under **Development → Keys**, copy the **Client ID** and
+   **Client Secret** (click **Generate Client Secret** if not shown).
+   - Use the **Development** keys first — free and safe. Production keys
+     come later (see "Going live" below).
+10. Enter them YOURSELF, in one of these two ways — never in a chat:
+    - **Install-time prompt:** if `hermes plugins install
+      blackghostosint/qbo-ops` prompted for these values, answer it in
+      your terminal.
+    - **By hand:** open `~/.hermes/.env` in an editor and add:
+      ```
+      QBO_OPS_CLIENT_ID=paste_your_client_id
+      QBO_OPS_CLIENT_SECRET=paste_your_client_secret
+      ```
+      (One `NAME=value` per line, no quotes. Restart Hermes after.)
 
-```bash
-hermes plugins install blackghostosint/qbo-ops
-```
+## Part 4 — Connect the grant (1 click + 1 command)
 
-- When prompted, paste the **Client ID**, then the **Client Secret** from
-  Part 2.
-- When prompted for the **refresh token** (Part 5 gives you this), you can
-  press Enter to skip — you'll add it in a moment.
-- When prompted for the **Realm ID** (Part 6), skip for now too.
-
-Already installed and skipped? Two ways to add them:
-
-- **Let your agent do it:** say *"set up QuickBooks"* — it will ask for the
-  two values one at a time and store them in your profile's
-  `~/.hermes/.env` for you (this is what happened on every install: the
-  installer itself prompts for each secret by name, and skipping is fine).
-- **Do it by hand:** append to `~/.hermes/.env`:
-  ```
-  QBO_OPS_CLIENT_ID=paste_client_id_here
-  QBO_OPS_CLIENT_SECRET=paste_client_secret_here
-  ```
-  (One `NAME=value` per line, no quotes needed. Restart Hermes after.)
-
-## Part 5 — Authorize and get the refresh token (2 min)
-
-12. Build your consent URL in a browser address bar — replace
-    `YOUR_CLIENT_ID` with your Client ID from Part 2:
+11. In YOUR terminal (not a chat window) run:
     ```
-    https://appcenter.intuit.com/connect/oauth2?client_id=YOUR_CLIENT_ID&redirect_uri=http://localhost:1990/callback&response_type=code&scope=com.intuit.quickbooks.accounting&state=hermes123
+    hermes auth add qbo-ops:quickbooks
     ```
-13. Open it, sign in to **the QuickBooks company you want to connect**, and
-    click **Connect** on the consent screen.
-14. The browser will land on `localhost:1990/callback` — the page will
-    **fail to load** (nothing is listening) — **that is expected and fine**.
-15. Copy the FULL URL from the address bar. It looks like:
-    ```
-    http://localhost:1990/callback?code=AB1234567890...&realmId=1234567890123456
-    ```
-16. Exchange the code for a refresh token — one terminal command. Replace
-    `CLIENT_ID`, `CLIENT_SECRET`, and the `code=` value from your URL:
-    ```bash
-    curl -s -X POST https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer \
-      -u "CLIENT_ID:CLIENT_SECRET" \
-      -d "grant_type=authorization_code&code=PASTE_CODE_HERE&redirect_uri=http://localhost:1990/callback"
-    ```
-    (Your agent can run this for you — paste it the whole address-bar URL
-    and say *"exchange this"*.)
-17. The reply is JSON. Find the long `"refresh_token": "..."` value (it
-    starts `RT1-...` or similar) and save it — same two routes as Part 4:
-    tell your agent *"set QBO_OPS_REFRESH_TOKEN to ..."* (it stores it for
-    you), or append `QBO_OPS_REFRESH_TOKEN=paste_it_here` to
-    `~/.hermes/.env` yourself.
+12. A browser opens Intuit's consent page — sign in to **the QuickBooks
+    company you want to connect** and click **Connect**. Hermes catches
+    the callback, stores the grant, and refreshes the token automatically
+    from then on. The plugin never holds or refreshes tokens itself.
+    - Requires a Hermes build with plugin oauth redirect-port support for
+      Intuit (upstream: NousResearch/hermes-agent#149642). If your build
+      predates it, this command fails with a redirect-URI error — the
+      entry lists and activates for users once that change ships.
 
-## Part 6 — Your company (Realm) ID
+## Part 5 — Your company (Realm) ID
 
-18. Look again at the address-bar URL from step 15 — the `realmId=` number
-    **is your company ID**. Save it the same way:
-    *"set QBO_OPS_REALM_ID to ..."* to your agent, or append
-    `QBO_OPS_REALM_ID=paste_the_number` to `~/.hermes/.env`.
+13. The realm ID is a **company number, not a secret**. Find it: sign in
+    at **https://app.qbo.intuit.com** — the number after `/app/` in the
+    address bar is your realm ID.
+14. You may paste it to your agent to store, or add it yourself:
+    ```
+    QBO_OPS_REALM_ID=paste_the_number
+    ```
 
-## Part 7 — Verify (30 seconds)
+## Part 6 — Verify (30 seconds)
 
 Restart Hermes so the new secrets are picked up:
 
@@ -132,32 +97,38 @@ never dumps a raw error.
 ## Going live with your real company (when ready)
 
 Development keys work with a **sandbox** company by default. To connect
-your real books, go back to
-**https://developer.intuit.com/app/developer/dashboard**, open your app →
-left sidebar → **Production settings** (under "Production"), complete the
-short questionnaire (it's automatic for standard accounting scope), then
-repeat Parts 3–6 using the **Production** keys tab. Same redirect URI.
+your real books:
+
+1. Go to **https://developer.intuit.com/app/developer/dashboard**, open
+   your app → **Production settings** (left sidebar), complete the short
+   questionnaire (automatic for standard accounting scope).
+2. Under **Production → Keys**, copy the production **Client ID/Secret**
+   and update your two `QBO_OPS_CLIENT_*` lines in `~/.hermes/.env`
+   yourself.
+3. Re-consent with production keys: run `hermes auth add
+   qbo-ops:quickbooks` again.
+4. Re-verify with the health question. Same redirect URI throughout.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Consent page: `redirect_uri` mismatch | URI not registered verbatim (Part 3) | Re-check exactly `http://localhost:1990/callback` |
-| `invalid_grant` on token exchange | Code single-use/expired (5 min) | Redo Part 5 with a fresh consent |
-| `qbo_health`: "reauth_required" | Refresh token revoked (100+ days idle, password change) | Redo Part 5 |
-| `qbo_health`: names a missing secret | Skipped at install | Re-add the secret (Part 4 routes) |
+| Consent page: `redirect_uri` mismatch | URI not registered verbatim (Part 2) | Re-check exactly `http://localhost:1990/callback` |
+| `hermes auth add` fails with redirect-URI error | Hermes build predates redirect-port support (#149642) | Update Hermes; the change is tracked upstream |
+| `invalid_grant` at sign-in | Consent code single-use/expired (5 min) | Re-run `hermes auth add` |
+| `qbo_health`: "reauth_required" | Grant revoked (100+ days idle, password change) | Re-run `hermes auth add` |
+| `qbo_health`: names a missing secret | Skipped at install | Add the named value yourself (Part 3 route) |
 | Everything set but still error | Hermes hasn't re-read secrets | `hermes gateway restart` |
 
 ### Deeper failure catalog (for agent diagnosis)
 
 | Error signature | Root cause | Remediation |
 |---|---|---|
-| HTTP 400 `invalid_client` | Client ID/Secret pair wrong for the token endpoint (prod keys vs dev consent or vice versa) | Confirm which keypair is stored; consent and keys must come from the same tab (Development or Production) |
+| HTTP 400 `invalid_client` | Client ID/Secret pair wrong for the environment (prod keys vs dev consent or vice versa) | Confirm which keypair is stored; keys and consent must come from the same tab (Development or Production) |
 | HTTP 400 `unauthorized_client` | App lacks the accounting scope / app type wrong | Recreate app with **QuickBooks Online Accounting** selected; re-consent |
-| HTTP 403 on API calls | Company not authorized to the app, or scope lost | Re-run consent (Part 5) — the company must be the one you signed into |
-| `invalid_grant` at refresh (was working) | Token family revoked: 100+ days idle, password change, or another integration rotated the token out from under us | Re-consent (Part 5). Prevention: only one integration should own the refresh token |
-| Two integrations, tokens keep dying | Refresh-token rotation: each integration refreshing invalidates the other's copy | Give each integration its own Intuit app; don't share a client pair |
+| HTTP 403 on API calls | Company not authorized to the app, or scope lost | Re-consent (Part 4) — the company must be the one you signed into |
+| `invalid_grant` at refresh (was working) | Grant revoked: 100+ days idle, password change | Re-consent (Part 4); Hermes owns the refresh, no data is lost |
 | HTTP 429 | Intuit rate limit (500 req/min typical) | Back off 60s; the plugin surfaces it as an error state, not a hang |
 | `qbo_query` returns empty but data exists | Query entity/field misspelled, or date format wrong | QBO SQL wants `YYYY-MM-DD` quoted dates; entity names are case-sensitive (`Purchase`, not `purchases`) |
-| Realm ID mismatch / "company not found" | realmId from sandbox consent used with production keys (or vice versa) | Re-consent against the same environment as the stored keys; the realmId rides the callback URL |
+| Realm ID mismatch / "company not found" | realmId from sandbox used with production keys (or vice versa) | Re-consent against the same environment as the stored keys |
 | Dashboard shows plugin but tools missing in session | Plugin installed after session start | New session (tools load at session start), or restart the backend |
