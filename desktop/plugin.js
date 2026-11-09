@@ -1,20 +1,17 @@
 // qbo-ops desktop pane: QuickBooks connection health + quick reports.
 // SDK-only imports; theme vars; boring-and-true by design.
 //
-// Chip contract (learned from ContribBoundary in the app source): a chip whose
-// render() throws degrades to an error chip — so the chip is PURE JSX with no
-// hooks (chips render outside the QueryClientProvider scope; the bundled
-// hello-runtime reference chip uses only useValue/atoms for the same reason).
-// Live data lives in the pane, which CAN use useQuery.
+// Note on react/jsx-runtime: every jsx()/jsxs() call MUST pass a props object
+// (at minimum `{}`) as the second argument — calling `jsx(Component)` with an
+// undefined second argument throws `TypeError: Cannot read properties of
+// undefined (reading 'key')` inside React 19's jsxProd(type, config, maybeKey).
 import { useQuery } from '@hermes/plugin-sdk';
-import { jsx } from 'react/jsx-runtime';
+import { jsx, jsxs } from 'react/jsx-runtime';
 
 const id = 'qbo-ops';
 
-// Pure static chip — never throws, never fetches. Shows state only when the
-// pane reports it (single source of truth; the chip is a courtesy marker).
 function HealthChip() {
-  return jsx('span', {
+  return jsxs('span', {
     className: 'inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] text-(--ui-text-tertiary)',
     children: [
       jsx('span', {
@@ -46,13 +43,13 @@ function QboPane({ ctx }) {
     retry: 1,
   });
   const st = health.data && health.data.status;
-  const isLoading = health.isLoading || health.isLoading === undefined && !health.data;
+  const isLoading = health.isLoading || (health.isLoading === undefined && !health.data);
   const fmt = (n) => {
     if (n == null || isNaN(n)) return '—';
     const abs = '$' + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     return n < 0 ? '-' + abs : abs;
   };
-  return jsx('div', {
+  return jsxs('div', {
     style: { padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px', color: 'var(--ui-text-secondary)' },
     children: [
       jsx('div', { style: { fontWeight: 600, color: 'var(--ui-text-primary)' }, children: 'QuickBooks Online' }),
@@ -87,7 +84,7 @@ export default {
       id: 'qbo-status',
       area: 'statusBar.right',
       order: 50,
-      render: () => jsx(HealthChip),
+      render: () => jsx(HealthChip, {}),
     });
     c.register({
       id: 'qbo-pane',

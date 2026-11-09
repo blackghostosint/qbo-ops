@@ -199,3 +199,17 @@ def test_guided_setup_never_collects_secrets():
         assert "curl" not in step.say  # no manual token exchange
     # realm ID (non-secret) is the only storable-by-agent value
     assert any("QBO_OPS_REALM_ID" in s.say for s in g.STEPS)
+
+
+# ---------- desktop plugin.js: jsx/jsxs calls always pass props object ----------
+
+def test_desktop_plugin_jsx_always_passes_props_object():
+    import re
+    src = (Path(__file__).resolve().parent.parent / "desktop" / "plugin.js").read_text()
+    code_only = "\n".join(line for line in src.splitlines() if not line.lstrip().startswith("//"))
+    # Calling jsx(Component) with 1 arg makes config === undefined in React 19's
+    # react-jsx-runtime.production.js (`void 0 !== config.key`), throwing
+    # TypeError: Cannot read properties of undefined (reading 'key').
+    single_arg_jsx = re.findall(r"\bjsx(?:s)?\(\s*[A-Za-z0-9_]+\s*\)", code_only)
+    assert not single_arg_jsx, f"Single-arg jsx() calls found (must pass {{}}): {single_arg_jsx}"
+
