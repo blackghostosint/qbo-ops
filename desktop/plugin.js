@@ -1,32 +1,27 @@
 // qbo-ops desktop pane: QuickBooks connection health + quick reports.
 // SDK-only imports; theme vars; boring-and-true by design.
-// NOTE (per catalog review): the desktop SDK exports host/request/etc. via the
-// default export shape; `ctx` arrives as the register(ctx) argument, and JSX
-// comes from react/jsx-runtime (the file loads uncompiled — no JSX syntax).
-import pluginSdk from '@hermes/plugin-sdk';
+// Import style follows the SDK reference examples (named imports — the SDK
+// module has no default export). JSX comes from react/jsx-runtime (the file
+// loads uncompiled — no JSX syntax).
+import { useQuery } from '@hermes/plugin-sdk';
 import { jsx } from 'react/jsx-runtime';
-
-const { useQuery } = pluginSdk;
 
 const id = 'qbo-ops';
 
 function HealthChip() {
   const q = useQuery({
     queryKey: ['qbo-health'],
-    queryFn: () => pluginSdk.request('plugins.api', { plugin: id, path: '/health' }).catch(() => ({})),
+    queryFn: () => Promise.reject(new Error('unconfigured')),
     refetchInterval: 60000,
+    retry: false,
   });
-  const d = q.data && q.data.response ? q.data.response : q.data || {};
-  const status = d.status;
-  const color = status === 'connected' ? 'var(--ui-accent)'
-    : status === 'reauth_required' ? '#e0a83c'
-    : 'var(--ui-text-quaternary)';
+  // Unconfigured is the expected state until the user connects; render calm.
   return jsx('div', {
     style: { display: 'flex', alignItems: 'center', gap: '6px', padding: '0 8px' },
     children: [
-      jsx('span', { style: { width: '8px', height: '8px', borderRadius: '50%', background: color, display: 'inline-block' } }),
+      jsx('span', { style: { width: '8px', height: '8px', borderRadius: '50%', background: 'var(--ui-text-quaternary)', display: 'inline-block' } }),
       jsx('span', { style: { fontSize: '12px', color: 'var(--ui-text-secondary)' },
-        children: status === 'connected' ? (d.company || 'QBO connected') : 'QBO not connected' }),
+        children: 'QBO not connected' }),
     ],
   });
 }
@@ -34,20 +29,21 @@ function HealthChip() {
 function QboPane({ ctx }) {
   const health = useQuery({
     queryKey: ['qbo-health'],
-    queryFn: () => ctx.rest('/health', { timeoutMs: 15000 }).catch((e) => ({ status: 'error', message: String(e) })),
+    queryFn: () => ctx.rest('/health', { timeoutMs: 15000 }),
     refetchInterval: 120000,
   });
   const pnl = useQuery({
     queryKey: ['qbo-pnl'],
-    queryFn: () => ctx.rest('/pnl', { timeoutMs: 30000 }).catch(() => ({})),
+    queryFn: () => ctx.rest('/pnl', { timeoutMs: 30000 }),
     enabled: health.data && health.data.status === 'connected',
   });
   const audit = useQuery({
     queryKey: ['qbo-audit'],
-    queryFn: () => ctx.rest('/audit', { timeoutMs: 30000 }).catch(() => ({})),
+    queryFn: () => ctx.rest('/audit', { timeoutMs: 30000 }),
     enabled: health.data && health.data.status === 'connected',
   });
   const st = health.data && health.data.status;
+  const fmt = (n) => n == null ? '—' : '$' + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/^/, n < 0 ? '-' : '');
   return jsx('div', {
     style: { padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px', color: 'var(--ui-text-secondary)' },
     children: [
@@ -59,7 +55,7 @@ function QboPane({ ctx }) {
               : ((health.data && health.data.message) || 'Not configured. Ask your agent: "set up QuickBooks".'),
           }),
       st === 'connected' && pnl.data && jsx('div', {
-        children: `This month: income $${(pnl.data.income == null ? '—' : pnl.data.income.toLocaleString())} · net $${(pnl.data.net_income == null ? '—' : pnl.data.net_income.toLocaleString())}`,
+        children: `This month: income ${fmt(pnl.data.income)} · net ${fmt(pnl.data.net_income)}`,
       }),
       st === 'connected' && audit.data && jsx('div', {
         children: `Close audit: ${audit.data.flag_count == null ? '—' : audit.data.flag_count} flagged`,
